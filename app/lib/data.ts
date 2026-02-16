@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import postgres from 'postgres';
 import {
   CustomerField,
@@ -9,23 +11,69 @@ import {
 } from './definitions';
 import { formatCurrency } from './utils';
 
-const sql = postgres(process.env.POSTGRES_URL!, { ssl: 'require' });
+// Ensure POSTGRES_URL is populated, even if Next.js didn't load .env.local for some reason.
+function ensurePostgresEnv() {
+  if (process.env.POSTGRES_URL) return;
+
+  try {
+    const projectRoot = process.cwd();
+    const envLocalPath = path.join(projectRoot, '.env.local');
+    const envPath = path.join(projectRoot, '.env');
+
+    const candidate = fs.existsSync(envLocalPath)
+      ? envLocalPath
+      : fs.existsSync(envPath)
+        ? envPath
+        : null;
+
+    if (candidate) {
+      const contents = fs.readFileSync(candidate, 'utf8');
+      for (const line of contents.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+
+        const [rawKey, ...rest] = trimmed.split('=');
+        const key = rawKey.trim();
+        const rawValue = rest.join('=').trim();
+        const value = rawValue.replace(/^"+|"+$/g, '');
+
+        if (!process.env[key]) {
+          process.env[key] = value;
+        }
+      }
+    }
+  } catch {
+    // If anything goes wrong while manually loading env, we'll fall back to the normal error below.
+  }
+
+  if (!process.env.POSTGRES_URL) {
+    throw new Error(
+      'POSTGRES_URL is not set. Make sure it exists in .env.local or .env at the project root and restart `npm run dev`.',
+    );
+  }
+}
+
+ensurePostgresEnv();
+
+const connectionString = process.env.POSTGRES_URL as string;
+const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+const sql = postgres(connectionString, {
+  ssl: isLocal ? false : 'require',
+});
 
 export async function fetchRevenue() {
   try {
-    // Artificially delay a response for demo purposes.
-    // Don't do this in production :)
-
-    // console.log('Fetching revenue data...');
-    // await new Promise((resolve) => setTimeout(resolve, 3000));
-
     const data = await sql<Revenue[]>`SELECT * FROM revenue`;
-
-    // console.log('Data fetch completed after 3 seconds.');
-
     return data;
-  } catch (error) {
-    console.error('Database Error:', error);
+  } catch (error: any) {
+    console.error('Database Error in fetchRevenue:', error);
+
+    // If the revenue table doesn't exist yet, fail gracefully with empty data
+    if (error && typeof error === 'object' && 'code' in error && (error as any).code === '42P01') {
+      // 42P01 = undefined_table in Postgres
+      return [];
+    }
+
     throw new Error('Failed to fetch revenue data.');
   }
 }
@@ -144,6 +192,7 @@ export async function fetchInvoicesPages(query: string) {
 
 export async function fetchInvoiceById(id: string) {
   try {
+    
     const data = await sql<InvoiceForm[]>`
       SELECT
         invoices.id,
@@ -169,6 +218,7 @@ export async function fetchInvoiceById(id: string) {
 
 export async function fetchCustomers() {
   try {
+    
     const customers = await sql<CustomerField[]>`
       SELECT
         id,
@@ -186,6 +236,7 @@ export async function fetchCustomers() {
 
 export async function fetchFilteredCustomers(query: string) {
   try {
+    
     const data = await sql<CustomersTableType[]>`
 		SELECT
 		  customers.id,
