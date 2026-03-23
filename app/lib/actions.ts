@@ -111,21 +111,23 @@ export async function deleteInvoice(id: string) {
   revalidatePath('/dashboard/invoices');
 }
 
-export async function authenticate (
-  prevStates: string | undefined,
-  formData : FormData
+export async function authenticate(
+  _prevState: string | undefined,
+  formData: FormData,
 ) {
   try {
-       await signIn('credentials');
-
-} catch (error) {
+    // Pass the form data (email, password, callbackUrl) to NextAuth
+    await signIn('credentials', formData);
+    return undefined;
+  } catch (error) {
     if (error instanceof AuthError) {
       switch (error.type) {
         case 'CredentialsSignin':
           return 'invalid credentials';
-        default: 'Something went wrong';
+        default:
+          return 'Something went wrong';
+      }
     }
+    throw error;
   }
-  throw error;
-}
 }
