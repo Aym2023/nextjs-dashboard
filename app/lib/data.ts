@@ -1,6 +1,3 @@
-import fs from 'fs';
-import path from 'path';
-import postgres from 'postgres';
 import {
   CustomerField,
   CustomersTableType,
@@ -10,56 +7,7 @@ import {
   Revenue,
 } from './definitions';
 import { formatCurrency } from './utils';
-
-// Ensure POSTGRES_URL is populated, even if Next.js didn't load .env.local for some reason.
-function ensurePostgresEnv() {
-  if (process.env.POSTGRES_URL) return;
-
-  try {
-    const projectRoot = process.cwd();
-    const envLocalPath = path.join(projectRoot, '.env.local');
-    const envPath = path.join(projectRoot, '.env');
-
-    const candidate = fs.existsSync(envLocalPath)
-      ? envLocalPath
-      : fs.existsSync(envPath)
-        ? envPath
-        : null;
-
-    if (candidate) {
-      const contents = fs.readFileSync(candidate, 'utf8');
-      for (const line of contents.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-
-        const [rawKey, ...rest] = trimmed.split('=');
-        const key = rawKey.trim();
-        const rawValue = rest.join('=').trim();
-        const value = rawValue.replace(/^"+|"+$/g, '');
-
-        if (!process.env[key]) {
-          process.env[key] = value;
-        }
-      }
-    }
-  } catch {
-    // If anything goes wrong while manually loading env, we'll fall back to the normal error below.
-  }
-
-  if (!process.env.POSTGRES_URL) {
-    throw new Error(
-      'POSTGRES_URL is not set. Make sure it exists in .env.local or .env at the project root and restart `npm run dev`.',
-    );
-  }
-}
-
-ensurePostgresEnv();
-
-const connectionString = process.env.POSTGRES_URL as string;
-const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
-const sql = postgres(connectionString, {
-  ssl: isLocal ? false : 'require',
-});
+import { sql } from './postgres-client';
 
 export async function fetchRevenue() {
   try {
@@ -104,28 +52,33 @@ export async function fetchLatestInvoices() {
   }
 }
 
+type CardDataRow = {
+  invoice_count: bigint | string;
+  customer_count: bigint | string;
+  paid: bigint | string | null;
+  pending: bigint | string | null;
+};
+
 export async function fetchCardData() {
   try {
-    // You can probably combine these into a single SQL query
-    // However, we are intentionally splitting them to demonstrate
-    // how to initialize multiple queries in parallel with JS.
-    const invoiceCountPromise = sql`SELECT COUNT(*) FROM invoices`;
-    const customerCountPromise = sql`SELECT COUNT(*) FROM customers`;
-    const invoiceStatusPromise = sql`SELECT
-         SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS "paid",
-         SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) AS "pending"
-         FROM invoices`;
+    const [row] = await sql<CardDataRow[]>`
+      SELECT
+        (SELECT COUNT(*)::bigint FROM invoices) AS invoice_count,
+        (SELECT COUNT(*)::bigint FROM customers) AS customer_count,
+        COALESCE(
+          (SELECT SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) FROM invoices),
+          0
+        ) AS paid,
+        COALESCE(
+          (SELECT SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) FROM invoices),
+          0
+        ) AS pending
+    `;
 
-    const data = await Promise.all([
-      invoiceCountPromise,
-      customerCountPromise,
-      invoiceStatusPromise,
-    ]);
-
-    const numberOfInvoices = Number(data[0][0].count ?? '0');
-    const numberOfCustomers = Number(data[1][0].count ?? '0');
-    const totalPaidInvoices = formatCurrency(data[2][0].paid ?? '0');
-    const totalPendingInvoices = formatCurrency(data[2][0].pending ?? '0');
+    const numberOfInvoices = Number(row.invoice_count ?? 0);
+    const numberOfCustomers = Number(row.customer_count ?? 0);
+    const totalPaidInvoices = formatCurrency(Number(row.paid ?? 0));
+    const totalPendingInvoices = formatCurrency(Number(row.pending ?? 0));
 
     return {
       numberOfCustomers,

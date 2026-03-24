@@ -4,15 +4,7 @@ import Credentials from 'next-auth/providers/credentials';
 import { z } from 'zod';
 import type { User } from '@/app/lib/definitions';
 import bcrypt from 'bcrypt';
-import postgres from 'postgres';
-
-const connectionString = process.env.POSTGRES_URL;
-if (!connectionString) {
-  throw new Error('POSTGRES_URL is not set. Check your .env/.env.local configuration.');
-}
-
-const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
-const sql = postgres(connectionString, { ssl: isLocal ? false : 'require' });
+import { sql } from '@/app/lib/postgres-client';
 
 async function getUser(email: string): Promise<User | undefined> {
   try {
@@ -24,7 +16,7 @@ async function getUser(email: string): Promise<User | undefined> {
   }
 }
 
-export const { auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   providers: [
     Credentials({

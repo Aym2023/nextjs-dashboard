@@ -1,12 +1,10 @@
 'use server';
 import { z } from 'zod';
-import postgres from 'postgres';
 import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
+import { redirect, unstable_rethrow } from 'next/navigation';
 import { signIn } from '@/auth';
-import  { AuthError } from 'next-auth';
-
-const sql = postgres(process.env.POSTGRES_URL!, {ssl: 'require'});
+import { AuthError } from 'next-auth';
+import { sql } from './postgres-client';
 
    const FormSchema = z.object({
     id: z.string(),
@@ -120,6 +118,7 @@ export async function authenticate(
     await signIn('credentials', formData);
     return undefined;
   } catch (error) {
+    unstable_rethrow(error);
     if (error instanceof AuthError) {
       switch (error.type) {
         case 'CredentialsSignin':

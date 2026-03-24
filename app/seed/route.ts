@@ -1,19 +1,6 @@
 import bcrypt from 'bcrypt';
-import postgres from 'postgres';
 import { invoices, customers, revenue, users } from '../lib/placeholder-data';
-
-// Create a function to initialize postgres connection
-function initializeDatabase() {
-  if (!process.env.POSTGRES_URL) {
-    throw new Error('POSTGRES_URL environment variable is not set');
-  }
-  
-  // For local development, disable SSL requirement
-  const isLocal = process.env.POSTGRES_URL.includes('localhost') || process.env.POSTGRES_URL.includes('127.0.0.1');
-  return postgres(process.env.POSTGRES_URL, { 
-    ssl: isLocal ? false : 'require' 
-  });
-}
+import { sql } from '../lib/postgres-client';
 
 async function seedUsers(sql: any) {
   try {
@@ -113,12 +100,7 @@ async function seedRevenue(sql: any) {
 }
 
 export async function GET() {
-  let sql: any;
   try {
-    // Initialize database connection
-    sql = initializeDatabase();
-
-    // Test database connection
     await sql`SELECT 1`;
 
     // Run seeding functions sequentially to avoid conflicts
